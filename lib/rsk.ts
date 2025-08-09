@@ -45,6 +45,7 @@ export const DEFAULT_TOKENS: Record<RskNetwork, TokenConfig[]> = {
   ],
   testnet: [
     // Example placeholder tokens (may not have balances); replace with actual testnet tokens if needed
+    {address:'0x19f64674D8a5b4e652319F5e239EFd3bc969a1FE', coingeckoId: 'trif-token'}
   ],
 }
 
