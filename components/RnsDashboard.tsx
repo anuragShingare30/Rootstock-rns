@@ -34,6 +34,10 @@ export default function RnsDashboard() {
     Array<{ contractAddress: string; name: string; symbol: string; contractDeployer: string | null; tokenType: string | null; tokenId: string }>
   >([])
   const [nftError, setNftError] = useState<string | null>(null)
+  const [txs, setTxs] = useState<
+    Array<{ hash: string; fromAddress: string; toAddress: string | null; asset: string | null; category: string | null; value: string | null }>
+  >([])
+  const [txError, setTxError] = useState<string | null>(null)
 
   useEffect(() => {
     setValid(isValidRns(input))
@@ -69,6 +73,8 @@ export default function RnsDashboard() {
     setTokens([])
   setNfts([])
   setNftError(null)
+  setTxs([])
+  setTxError(null)
     try {
       const name = input.trim().toLowerCase()
       if (!isValidRns(name)) throw new Error('Invalid RNS name format')
@@ -112,6 +118,16 @@ export default function RnsDashboard() {
           } else {
             const msg = typeof data?.error === 'string' ? data.error : `Failed to load NFTs (${res.status})`
             setNftError(msg)
+          }
+        })(),
+        (async () => {
+          const res = await fetch(`/api/txs?address=${addr}&network=${network}`, { cache: 'no-store' })
+          const data = await res.json().catch(() => ({}))
+          if (res.ok) {
+            setTxs(Array.isArray(data.txs) ? data.txs : [])
+          } else {
+            const msg = typeof data?.error === 'string' ? data.error : `Failed to load transactions (${res.status})`
+            setTxError(msg)
           }
         })(),
       ])
@@ -255,6 +271,53 @@ export default function RnsDashboard() {
                     </li>
                   ))}
                 </ul>
+              )}
+            </div>
+
+            <div className="border rounded p-4 md:col-span-2">
+              <div className="text-sm text-gray-600 mb-2">Recent Transactions</div>
+              {txError && (
+                <div className="mb-2 text-sm text-red-700 bg-red-50 border border-red-200 rounded p-2">{txError}</div>
+              )}
+              {txs.length === 0 && !txError ? (
+                <div className="text-gray-500">No recent transactions found.</div>
+              ) : null}
+              {txs.length > 0 && (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-sm">
+                    <thead>
+                      <tr className="text-left text-gray-600">
+                        <th className="py-1 pr-4">Hash</th>
+                        <th className="py-1 pr-4">From</th>
+                        <th className="py-1 pr-4">To</th>
+                        <th className="py-1 pr-4">Asset</th>
+                        <th className="py-1 pr-4">Category</th>
+                        <th className="py-1 pr-0">Value</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {txs.map((t) => (
+                        <tr key={t.hash} className="border-t">
+                          <td className="py-1 pr-4 break-all">
+                            <a
+                              href={`${network === 'mainnet' ? 'https://explorer.rootstock.io' : 'https://explorer.testnet.rootstock.io'}/tx/${t.hash}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-blue-600 hover:underline"
+                            >
+                              {short(t.hash)}
+                            </a>
+                          </td>
+                          <td className="py-1 pr-4 break-all">{t.fromAddress ? short(t.fromAddress) : '-'}</td>
+                          <td className="py-1 pr-4 break-all">{t.toAddress ? short(t.toAddress) : '-'}</td>
+                          <td className="py-1 pr-4">{t.asset || '-'}</td>
+                          <td className="py-1 pr-4">{t.category || '-'}</td>
+                          <td className="py-1 pr-0">{t.value || '-'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               )}
             </div>
           </div>

@@ -30,9 +30,13 @@ Alchemy (Rootstock Node + Token/NFT APIs)
 
 
 - **Transaction History**: Pull lists of recent transactions, including transfers and smart contract interactions.
-- 
+  - Value comes as a string from the API; if you want formatted RBTC/units, I can add formatting logic.
+  - We can expand columns later (timestamp, fee, status) or link from/to to the explorer as well.
+
+
+
 - **Token Transfer Events & Activity**: Use The Graph for indexed queries, showing transfers and historical activity.
-- 
+
 - **Portfolio Breakdown**: Visualize token allocations with simple charts (balances, percentages).
--    
+   
 - **Domain Ownership/Status**: Show ownership info for the RNS name, sourced via registry lookups.
