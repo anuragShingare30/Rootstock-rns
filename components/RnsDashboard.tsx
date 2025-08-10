@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Resolver from '@rsksmart/rns-resolver.js'
 import { AddrResolver } from '@rsksmart/rns-sdk'
-import { getErc20Balances, getRbtcBalance, getRskProvider, type RskNetwork } from '../lib/rsk'
-import { utils, Wallet, BigNumber } from 'ethers'
+import { getRbtcBalance, getRskProvider, type RskNetwork } from '../lib/rsk'
+import { utils, Wallet } from 'ethers'
 import { Buffer as BufferPolyfill } from 'buffer'
 
 function isValidRns(name: string) {
@@ -28,8 +28,12 @@ export default function RnsDashboard() {
 
   const [rbtc, setRbtc] = useState<{ ether: string } | null>(null)
   const [tokens, setTokens] = useState<
-    Array<{ address: string; symbol: string; name: string; decimals: number; raw: BigNumber; logo?: string }>
+    Array<{ address: string; symbol: string; name: string; balanceRaw: string; decimals?: number }>
   >([])
+  const [nfts, setNfts] = useState<
+    Array<{ contractAddress: string; name: string; symbol: string; contractDeployer: string | null; tokenType: string | null; tokenId: string }>
+  >([])
+  const [nftError, setNftError] = useState<string | null>(null)
 
   useEffect(() => {
     setValid(isValidRns(input))
@@ -63,6 +67,8 @@ export default function RnsDashboard() {
     setAddress('')
     setRbtc(null)
     setTokens([])
+  setNfts([])
+  setNftError(null)
     try {
       const name = input.trim().toLowerCase()
       if (!isValidRns(name)) throw new Error('Invalid RNS name format')
@@ -83,12 +89,32 @@ export default function RnsDashboard() {
       }
       setAddress(addr)
 
-      const [rb, erc20s] = await Promise.all([
-        getRbtcBalance(addr, network),
-        getErc20Balances(addr, network),
-      ])
+      const rb = await getRbtcBalance(addr, network)
       setRbtc({ ether: rb.ether })
-      setTokens(erc20s)
+      // Fetch tokens and NFTs in parallel, handle errors separately
+      await Promise.all([
+        (async () => {
+          const res = await fetch(`/api/tokens?address=${addr}&network=${network}`, { cache: 'no-store' })
+          const data = await res.json().catch(() => ({}))
+          if (res.ok) {
+            setTokens(Array.isArray(data.tokens) ? data.tokens : [])
+          } else {
+            const msg = typeof data?.error === 'string' ? data.error : `Failed to load tokens (${res.status})`
+            // Surface in global error area to keep prior UX
+            throw new Error(msg)
+          }
+        })(),
+        (async () => {
+          const res = await fetch(`/api/nfts?address=${addr}&network=${network}`, { cache: 'no-store' })
+          const data = await res.json().catch(() => ({}))
+          if (res.ok) {
+            setNfts(Array.isArray(data.nfts) ? data.nfts : [])
+          } else {
+            const msg = typeof data?.error === 'string' ? data.error : `Failed to load NFTs (${res.status})`
+            setNftError(msg)
+          }
+        })(),
+      ])
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to resolve'
       setError(msg)
@@ -167,20 +193,65 @@ export default function RnsDashboard() {
             <div className="border rounded p-4">
               <div className="text-sm text-gray-600 mb-2">Tokens (ERC-20)</div>
               {tokens.length === 0 ? (
-                <div className="text-gray-500">No known tokens detected in the curated list.</div>
+                <div className="text-gray-500">No ERC-20 tokens found.</div>
               ) : (
                 <ul className="space-y-2">
-                  {tokens.map((t) => (
-                    <li key={t.address} className="flex items-center justify-between">
-                      <div>
-                        <div className="font-medium">{t.name} ({t.symbol})</div>
-                        <div className="text-xs text-gray-600">{t.address}</div>
-                      </div>
-                      <div className="text-right">
-                        <div className="font-semibold">
-                          {utils.formatUnits(t.raw, t.decimals)}
+                  {tokens.map((t) => {
+                    const displaySymbol = ((t.symbol || '').trim() || 'UNKNOWN').toUpperCase()
+                    let displayBalance = t.balanceRaw
+                    try {
+                      const dec = typeof t.decimals === 'number' ? t.decimals : 18
+                      displayBalance = utils.formatUnits(t.balanceRaw, dec)
+                    } catch {}
+                    return (
+                      <li key={t.address} className="flex items-center justify-between">
+                        <div>
+                          <div className="font-medium">{displaySymbol}</div>
+                          <a
+                            href={`${network === 'mainnet' ? 'https://explorer.rootstock.io' : 'https://explorer.testnet.rootstock.io'}/address/${t.address}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs text-blue-600 hover:underline"
+                          >
+                            {t.address}
+                          </a>
                         </div>
+                        <div className="text-right">
+                          <div className="font-semibold">{displayBalance}</div>
+                        </div>
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
+            </div>
+
+            <div className="border rounded p-4">
+              <div className="text-sm text-gray-600 mb-2">NFTs / Assets</div>
+              {nftError && (
+                <div className="mb-2 text-sm text-red-700 bg-red-50 border border-red-200 rounded p-2">{nftError}</div>
+              )}
+              {nfts.length === 0 && !nftError ? (
+                <div className="text-gray-500">No NFTs found.</div>
+              ) : null}
+              {nfts.length > 0 && (
+                <ul className="space-y-2">
+                  {nfts.map((n, idx) => (
+                    <li key={`${n.contractAddress}-${n.tokenId}-${idx}`} className="space-y-1">
+                      <div className="flex items-center justify-between">
+                        <a
+                          href={`${network === 'mainnet' ? 'https://explorer.rootstock.io' : 'https://explorer.testnet.rootstock.io'}/address/${n.contractAddress}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs text-blue-600 hover:underline break-all"
+                        >
+                          {n.contractAddress}
+                        </a>
+                        <span className="text-xs text-gray-600">{n.tokenType || 'UNKNOWN'}</span>
                       </div>
+                      <div className="text-sm font-medium">{n.name || 'Unnamed'}{n.symbol ? ` (${n.symbol})` : ''}</div>
+                      <div className="text-xs text-gray-700">Token ID: {n.tokenId || '-'}</div>
+                      <div className="text-xs text-gray-500">Deployer: {n.contractDeployer || '-'}</div>
                     </li>
                   ))}
                 </ul>
@@ -190,9 +261,7 @@ export default function RnsDashboard() {
         </div>
       )}
 
-      <p className="text-xs text-gray-500">
-        This demo uses a small, curated token list. For full holdings, integrate The Graph or a token indexer.
-      </p>
+  <p className="text-xs text-gray-500">Powered by Alchemy Token API for Rootstock.</p>
       <p>mainnet: moneyonchain.rsk</p>
       <p>testnet: testing2.rsk</p>
     </div>

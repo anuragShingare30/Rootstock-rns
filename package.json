@@ -11,7 +11,8 @@
   "dependencies": {
     "@rsksmart/rns-resolver.js": "^1.1.0",
     "@rsksmart/rns-sdk": "^1.0.0-beta.9",
-  "ethers": "^5.7.2",
+    "alchemy-sdk": "^3.6.2",
+    "ethers": "^5.7.2",
     "next": "15.4.6",
     "react": "19.1.0",
     "react-dom": "19.1.0"
