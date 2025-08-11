@@ -27,13 +27,13 @@ Alchemy (Rootstock Node + Token/NFT APIs)
 - **Native Token (RBTC) Balance:** Fetch and display Rootstock’s main balance.
 - **ERC-20 Token Balances/Details**: Show all standard tokens held, including symbols, names, and logos
 - **NFTs/assets**: List and visualize NFTs owned (images, metadata).
-
-
 - **Transaction History**: Pull lists of recent transactions, including transfers and smart contract interactions.
   - Value comes as a string from the API; if you want formatted RBTC/units, I can add formatting logic.
   - We can expand columns later (timestamp, fee, status) or link from/to to the explorer as well.
 
+
 - **Domain Ownership/Status**: Show ownership info for the RNS name, sourced via registry lookups.
+  - display the availability and price of the domain in RIF/year on mainnet
 
 
 - **Token Transfer Events & Activity**: Use The Graph for indexed queries, showing transfers and historical activity.

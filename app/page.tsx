@@ -1,6 +1,6 @@
 'use client'
-import RnsDashboard from '../components/RnsDashboard'
+import { redirect } from 'next/navigation'
 
 export default function Home() {
-  return <RnsDashboard />
+  redirect('/resolve')
 }
