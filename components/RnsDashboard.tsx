@@ -35,9 +35,34 @@ export default function RnsDashboard() {
   >([])
   const [nftError, setNftError] = useState<string | null>(null)
   const [txs, setTxs] = useState<
-    Array<{ hash: string; fromAddress: string; toAddress: string | null; asset: string | null; category: string | null; value: string | null }>
+    Array<{
+      hash: string
+      fromAddress: string
+      toAddress: string | null
+      asset: string | null
+      category: string | null
+      value: string | null
+      timestamp: string | null
+      fee: string | null
+      status: 'success' | 'failed' | 'pending'
+    }>
   >([])
   const [txError, setTxError] = useState<string | null>(null)
+  const [page, setPage] = useState<number>(1)
+  const [pageSize, setPageSize] = useState<number>(20)
+  const paginatedTxs = useMemo(() => {
+    const total = txs.length
+    const totalPages = Math.max(1, Math.ceil(total / pageSize))
+    const p = Math.min(Math.max(1, page), totalPages)
+    const start = (p - 1) * pageSize
+    const end = start + pageSize
+    return txs.slice(start, end)
+  }, [txs, page, pageSize])
+
+  useEffect(() => {
+    // Reset to first page when data or page size changes
+    setPage(1)
+  }, [txs, pageSize])
 
   useEffect(() => {
     setValid(isValidRns(input))
@@ -147,7 +172,7 @@ export default function RnsDashboard() {
   }
 
   return (
-    <div className="mx-auto max-w-2xl p-6 space-y-6">
+    <div className="mx-auto max-w-6xl p-6 space-y-6">
       <h1 className="text-2xl font-semibold">RNS Address & Balances</h1>
 
       <form onSubmit={onSubmit} className="flex gap-2 items-end">
@@ -200,7 +225,7 @@ export default function RnsDashboard() {
             </button>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="border rounded p-4">
               <div className="text-sm text-gray-600">RBTC</div>
               <div className="text-xl font-semibold">{rbtc ? `${rbtc.ether} RBTC` : '—'}</div>
@@ -273,8 +298,9 @@ export default function RnsDashboard() {
                 </ul>
               )}
             </div>
+          </div>
 
-            <div className="border rounded p-4 md:col-span-2">
+            <div className="border rounded p-4">
               <div className="text-sm text-gray-600 mb-2">Recent Transactions</div>
               {txError && (
                 <div className="mb-2 text-sm text-red-700 bg-red-50 border border-red-200 rounded p-2">{txError}</div>
@@ -283,22 +309,41 @@ export default function RnsDashboard() {
                 <div className="text-gray-500">No recent transactions found.</div>
               ) : null}
               {txs.length > 0 && (
-                <div className="overflow-x-auto">
-                  <table className="min-w-full text-sm">
-                    <thead>
-                      <tr className="text-left text-gray-600">
-                        <th className="py-1 pr-4">Hash</th>
-                        <th className="py-1 pr-4">From</th>
-                        <th className="py-1 pr-4">To</th>
-                        <th className="py-1 pr-4">Asset</th>
-                        <th className="py-1 pr-4">Category</th>
-                        <th className="py-1 pr-0">Value</th>
+                <>
+                  <TxTableControls txCount={txs.length} onPageChange={setPage} onPageSizeChange={setPageSize} page={page} pageSize={pageSize} />
+                  <div className="overflow-x-auto">
+                  <table className="w-full table-auto text-sm align-middle">
+                    <thead className="bg-gray-50">
+                      <tr className="text-left text-gray-700">
+                        <th className="px-4 py-2 font-medium">Hash</th>
+                        <th className="px-4 py-2 font-medium">Time</th>
+                        <th className="px-4 py-2 font-medium">From</th>
+                        <th className="px-4 py-2 font-medium">To</th>
+                        <th className="px-4 py-2 font-medium">Asset</th>
+                        <th className="px-4 py-2 font-medium">Category</th>
+                        <th className="px-4 py-2 font-medium">Value</th>
+                        <th className="px-4 py-2 font-medium">Fee</th>
+                        <th className="px-4 py-2 font-medium">Status</th>
                       </tr>
                     </thead>
-                    <tbody>
-                      {txs.map((t) => (
-                        <tr key={t.hash} className="border-t">
-                          <td className="py-1 pr-4 break-all">
+                    <tbody className="divide-y divide-gray-200">
+                      {paginatedTxs.map((t) => {
+                        const timeStr = t.timestamp ? new Date(t.timestamp).toLocaleString() : '-'
+                        // Value formatting: RBTC for external, token units otherwise
+                        const displayAsset = (t.asset || '').toString().toUpperCase() || '-'
+                        let displayValue = t.value || '-'
+                        if (t.category === 'external' && t.value) {
+                          // Alchemy returns native value already in ETH units; just append RBTC
+                          displayValue = `${t.value} RBTC`
+                        } else if (t.value && displayAsset && displayAsset !== '-') {
+                          displayValue = `${t.value} ${displayAsset}`
+                        }
+                        const displayFee = t.fee ? `${t.fee} RBTC` : '-'
+                        const statusTextClass = t.status === 'success' ? 'text-green-700' : t.status === 'failed' ? 'text-red-700' : 'text-yellow-700'
+                        const statusBgClass = t.status === 'success' ? 'bg-green-50' : t.status === 'failed' ? 'bg-red-50' : 'bg-yellow-50'
+                        return (
+                        <tr key={t.hash} className="hover:bg-gray-50">
+                          <td className="px-4 py-2 break-all font-mono text-xs">
                             <a
                               href={`${network === 'mainnet' ? 'https://explorer.rootstock.io' : 'https://explorer.testnet.rootstock.io'}/tx/${t.hash}`}
                               target="_blank"
@@ -308,25 +353,98 @@ export default function RnsDashboard() {
                               {short(t.hash)}
                             </a>
                           </td>
-                          <td className="py-1 pr-4 break-all">{t.fromAddress ? short(t.fromAddress) : '-'}</td>
-                          <td className="py-1 pr-4 break-all">{t.toAddress ? short(t.toAddress) : '-'}</td>
-                          <td className="py-1 pr-4">{t.asset || '-'}</td>
-                          <td className="py-1 pr-4">{t.category || '-'}</td>
-                          <td className="py-1 pr-0">{t.value || '-'}</td>
+                          <td className="px-4 py-2 whitespace-nowrap">{timeStr}</td>
+                          <td className="px-4 py-2 break-all font-mono text-xs">{t.fromAddress ? short(t.fromAddress) : '-'}</td>
+                          <td className="px-4 py-2 break-all font-mono text-xs">{t.toAddress ? short(t.toAddress) : '-'}</td>
+                          <td className="px-4 py-2">{displayAsset}</td>
+                          <td className="px-4 py-2">{t.category || '-'}</td>
+                          <td className="px-4 py-2">{displayValue}</td>
+                          <td className="px-4 py-2">{displayFee}</td>
+                          <td className="px-4 py-2">
+                            <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs ${statusBgClass} ${statusTextClass}`}>
+                              {t.status}
+                            </span>
+                          </td>
                         </tr>
-                      ))}
+                        )
+                      })}
                     </tbody>
                   </table>
-                </div>
+                  </div>
+                  <TxTablePagination txCount={txs.length} page={page} pageSize={pageSize} onPageChange={setPage} />
+                </>
               )}
             </div>
-          </div>
+          
         </div>
       )}
 
   <p className="text-xs text-gray-500">Powered by Alchemy Token API for Rootstock.</p>
       <p>mainnet: moneyonchain.rsk</p>
       <p>testnet: testing2.rsk</p>
+    </div>
+  )
+}
+
+// Controls component for page size and quick pager
+function TxTableControls({ txCount, page, pageSize, onPageChange, onPageSizeChange }: {
+  txCount: number
+  page: number
+  pageSize: number
+  onPageChange: (p: number) => void
+  onPageSizeChange: (s: number) => void
+}) {
+  const totalPages = Math.max(1, Math.ceil(txCount / pageSize))
+  const clampedPage = Math.min(page, totalPages)
+  if (clampedPage !== page) onPageChange(clampedPage)
+  const start = (clampedPage - 1) * pageSize + 1
+  const end = Math.min(txCount, clampedPage * pageSize)
+  return (
+    <div className="flex items-center justify-between mb-3">
+      <div className="text-xs text-gray-600">Showing {txCount === 0 ? 0 : start}-{end} of {txCount}</div>
+      <div className="flex items-center gap-3">
+        <label className="text-xs text-gray-600">Rows per page</label>
+        <select
+          className="border rounded px-2 py-1 text-sm"
+          value={pageSize}
+          onChange={(e) => onPageSizeChange(parseInt(e.target.value, 10))}
+        >
+          <option value={10}>10</option>
+          <option value={20}>20</option>
+          <option value={50}>50</option>
+        </select>
+      </div>
+    </div>
+  )
+}
+
+// Pagination bar with prev/next
+function TxTablePagination({ txCount, page, pageSize, onPageChange }: {
+  txCount: number
+  page: number
+  pageSize: number
+  onPageChange: (p: number) => void
+}) {
+  const totalPages = Math.max(1, Math.ceil(txCount / pageSize))
+  const canPrev = page > 1
+  const canNext = page < totalPages
+  return (
+    <div className="flex items-center justify-end gap-2 mt-3">
+      <button
+        className="px-3 py-1 border rounded disabled:opacity-50"
+        onClick={() => onPageChange(page - 1)}
+        disabled={!canPrev}
+      >
+        Prev
+      </button>
+      <div className="text-xs text-gray-600">Page {page} of {totalPages}</div>
+      <button
+        className="px-3 py-1 border rounded disabled:opacity-50"
+        onClick={() => onPageChange(page + 1)}
+        disabled={!canNext}
+      >
+        Next
+      </button>
     </div>
   )
 }

@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server'
 import { Alchemy, AssetTransfersCategory, SortingOrder } from 'alchemy-sdk'
+import { utils as ethersUtils } from 'ethers'
 
 type Network = 'mainnet' | 'testnet'
 
@@ -11,6 +12,8 @@ type TxRow = {
   category: string | null
   value: string | null
   blockNum: string | null
+  contractAddress: string | null
+  timestamp: string | null
 }
 
 function getAlchemyUrl(network: Network) {
@@ -57,6 +60,8 @@ function normalizeTransfer(t: unknown): TxRow | null {
     category?: string | null
     value?: string | null
     blockNum?: string | null
+  rawContract?: { address?: string | null } | null
+  metadata?: { blockTimestamp?: string | null } | null
   } | null
   if (!o) return null
   const hash = (o.hash || '') as string
@@ -69,6 +74,8 @@ function normalizeTransfer(t: unknown): TxRow | null {
     category: (o.category ?? null) as string | null,
     value: (o.value ?? null) as string | null,
     blockNum: (o.blockNum ?? null) as string | null,
+  contractAddress: (o.rawContract?.address ?? null) as string | null,
+  timestamp: (o.metadata?.blockTimestamp ?? null) as string | null,
   }
 }
 
@@ -107,14 +114,14 @@ export async function GET(req: NextRequest) {
           category: categories,
           maxCount: 20,
           order: SortingOrder.DESCENDING,
-          withMetadata: false,
+          withMetadata: true,
         }),
         alchemy.core.getAssetTransfers({
           toAddress: address,
           category: categories,
           maxCount: 20,
           order: SortingOrder.DESCENDING,
-          withMetadata: false,
+          withMetadata: true,
         }),
       ])
       fromRes = fr as unknown
@@ -123,20 +130,20 @@ export async function GET(req: NextRequest) {
       // Fallback to direct JSON-RPC if SDK transport fails (e.g., "missing response")
       const cat = ['external', 'erc20', 'erc721', 'erc1155']
       const maxCountHex = '0x14' // 20
-      const [frRpc, trRpc] = await Promise.all([
+    const [frRpc, trRpc] = await Promise.all([
         rpcCall(urlStr, 'alchemy_getAssetTransfers', [{
           fromAddress: address,
           category: cat,
           maxCount: maxCountHex,
-          order: 'desc',
-          withMetadata: false,
+      order: 'desc',
+      withMetadata: true,
         }]),
         rpcCall(urlStr, 'alchemy_getAssetTransfers', [{
           toAddress: address,
           category: cat,
           maxCount: maxCountHex,
-          order: 'desc',
-          withMetadata: false,
+      order: 'desc',
+      withMetadata: true,
         }]),
       ])
       fromRes = frRpc
@@ -167,16 +174,103 @@ export async function GET(req: NextRequest) {
       return bb > ab ? 1 : -1
     })
 
-    const top = sorted.slice(0, 20).map((t) => ({
-      hash: t.hash,
-      fromAddress: t.fromAddress,
-      toAddress: t.toAddress,
-      asset: t.asset,
-      category: t.category,
-      value: t.value,
-    }))
+    const topRaw = sorted.slice(0, 20)
 
-    return new Response(JSON.stringify({ txs: top }), {
+    // Enrich missing asset using CoinGecko (mainnet only) and compute fee/status via receipts
+    async function fetchFromCoingecko(addr: string): Promise<{ symbol?: string; name?: string } | null> {
+      if (network !== 'mainnet') return null
+      try {
+        const url = `https://api.coingecko.com/api/v3/coins/rootstock/contract/${addr}`
+        const res = await fetch(url, { headers: { accept: 'application/json' }, cache: 'no-store' })
+        if (!res.ok) return null
+        const json: unknown = await res.json()
+        const j = json as { symbol?: string; name?: string }
+        return { symbol: j?.symbol, name: j?.name }
+      } catch {
+        return null
+      }
+    }
+
+    // Fetch receipts with modest concurrency
+  async function getReceipt(hash: string) {
+      try {
+    const r = await alchemy!.core.getTransactionReceipt(hash)
+        return r as unknown
+      } catch {
+        return null
+      }
+    }
+
+    type Enriched = {
+      hash: string
+      fromAddress: string
+      toAddress: string | null
+      asset: string | null
+      category: string | null
+      value: string | null
+      timestamp: string | null
+      fee: string | null
+      status: 'success' | 'failed' | 'pending'
+    }
+
+    const enriched: Enriched[] = []
+    const limit = 5
+    for (let i = 0; i < topRaw.length; i += limit) {
+      const slice = topRaw.slice(i, i + limit)
+      const results = await Promise.all(
+        slice.map(async (t) => {
+          // Asset fallback via CoinGecko if missing/unknown and we have a contract address
+          let asset = t.asset
+          const isUnknown = !asset || asset.trim().length === 0 || asset.toLowerCase() === 'unknown'
+          if (isUnknown && t.contractAddress) {
+            const cg = await fetchFromCoingecko(t.contractAddress)
+            if (cg?.symbol) asset = cg.symbol.toUpperCase()
+          }
+
+          // Receipt for fee/status
+          let fee: string | null = null
+          let status: 'success' | 'failed' | 'pending' = 'pending'
+          const rcUnknown = await getReceipt(t.hash)
+          if (rcUnknown) {
+            const rc = rcUnknown as {
+              status?: number
+              gasUsed?: { toString: () => string } | string | bigint
+              effectiveGasPrice?: { toString: () => string } | string | bigint
+            }
+            const ok = rc?.status === 1
+            const fail = rc?.status === 0
+            status = ok ? 'success' : fail ? 'failed' : 'pending'
+            try {
+              const gasUsedStr = typeof rc?.gasUsed === 'object' && rc?.gasUsed && 'toString' in rc.gasUsed ? rc.gasUsed.toString() : (rc?.gasUsed as string | undefined)
+              const gasPriceStr = typeof rc?.effectiveGasPrice === 'object' && rc?.effectiveGasPrice && 'toString' in rc.effectiveGasPrice ? rc.effectiveGasPrice.toString() : (rc?.effectiveGasPrice as string | undefined)
+              if (gasUsedStr && gasPriceStr) {
+                const gu = BigInt(gasUsedStr)
+                const gp = BigInt(gasPriceStr)
+                const wei = gu * gp
+                fee = ethersUtils.formatUnits(wei.toString(), 18)
+              }
+            } catch {
+              // ignore fee calc errors
+            }
+          }
+
+          return {
+            hash: t.hash,
+            fromAddress: t.fromAddress,
+            toAddress: t.toAddress,
+            asset,
+            category: t.category,
+            value: t.value,
+            timestamp: t.timestamp,
+            fee,
+            status,
+          } as Enriched
+        })
+      )
+      enriched.push(...results)
+    }
+
+    return new Response(JSON.stringify({ txs: enriched }), {
       status: 200,
       headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },
     })
