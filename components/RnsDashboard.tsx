@@ -104,6 +104,7 @@ export default function RnsDashboard() {
       const name = input.trim().toLowerCase()
       if (!isValidRns(name)) throw new Error('Invalid RNS name format')
 
+
       // First try rns-sdk AddrResolver (ethers.js based)
       let addr: string | undefined
       try {
@@ -211,6 +212,7 @@ export default function RnsDashboard() {
       {error && (
         <div className="p-3 border border-red-300 bg-red-50 text-red-800 rounded">{error}</div>
       )}
+
 
       {address && (
         <div className="space-y-3">

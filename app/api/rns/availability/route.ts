@@ -1,7 +1,7 @@
 
 import { NextRequest } from 'next/server'
-import { providers, utils as ethersUtils, BigNumber, Wallet } from 'ethers'
-import { PartnerRegistrar } from '@rsksmart/rns-sdk';
+import { providers, Wallet } from 'ethers'
+import { AddrResolver } from '@rsksmart/rns-sdk'
 
 function getRskMainnetProvider() {
   const url = process.env.NEXT_PUBLIC_RSK_RPC_URL_MAINNET || 'https://public-node.rsk.co'
@@ -25,24 +25,21 @@ export async function GET(req: NextRequest) {
   try {
     const provider = getRskMainnetProvider()
     const signer = Wallet.createRandom().connect(provider)
-    const label = name.endsWith('.rsk') ? name.slice(0, -4) : name
-    let available: boolean = false
-    let rifPricePerYear: string | null = null
-    // Use PartnerRegistrar for mainnet (network param is 'mainnet', addresses optional)
-    const partnerRegistrar = new PartnerRegistrar(signer, 'mainnet')
+    const registryAddress = '0xcb868aeabd31e2b66f74e9a55cf064abb31a4ad5'
+    const addrResolver = new AddrResolver(registryAddress, signer)
+
+    let available = false
+    const zero = '0x0000000000000000000000000000000000000000'
     try {
-      const avail = await partnerRegistrar.available(label)
-      available = (typeof avail === 'boolean') ? avail : (avail === 'true')
+      const resolved = await addrResolver.addr(name)
+      available = !resolved || resolved.toLowerCase() === zero
     } catch {
-      available = false
+      // If resolution fails (e.g., unregistered), treat as available
+      available = true
     }
-    try {
-      const duration = BigNumber.from('1')
-      const price = await partnerRegistrar.price(label, duration)
-      rifPricePerYear = ethersUtils.formatUnits(price.toString(), 18)
-    } catch {
-      rifPricePerYear = null
-    }
+
+    // Fixed price policy: 2 RIF per year (mainnet)
+    const rifPricePerYear = '2'
     return new Response(
       JSON.stringify({ name, network: 'mainnet', available, rifPricePerYear }),
       { status: 200, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } }
